@@ -2072,6 +2072,18 @@ void TigoWebServer::build_yaml_json(PSRAMString& json, const std::set<std::strin
     return out;
   };
 
+  // Build "tigo_<type>_<slug>", but skip the <type> tag when the slug
+  // already starts with it (e.g. label "MPPT 4" -> "tigo_mppt_4", not
+  // "tigo_mppt_mppt_4"). Inverter "FlexBoss A" stays "tigo_inverter_flexboss_a".
+  auto make_id = [&slugify](const char *type_tag, const std::string &label) -> std::string {
+    std::string slug = slugify(label);
+    std::string tag(type_tag);
+    bool already_prefixed = (slug == tag) ||
+        (slug.size() > tag.size() && slug[tag.size()] == '_' &&
+         slug.compare(0, tag.size(), tag) == 0);
+    return already_prefixed ? ("tigo_" + slug) : ("tigo_" + tag + "_" + slug);
+  };
+
   std::map<int, std::string> node_device_id;
   std::vector<std::pair<std::string, std::string>> devices;
   std::set<std::string> seen_ids;
@@ -2094,7 +2106,7 @@ void TigoWebServer::build_yaml_json(PSRAMString& json, const std::set<std::strin
     for (const auto &node : assigned_nodes) {
       std::string label = node.cca_inverter_label.empty() ? std::string("Unassigned MPPT")
                                                           : node.cca_inverter_label;
-      std::string id = "tigo_mppt_" + slugify(label);
+      std::string id = make_id("mppt", label);
       node_device_id[node.sensor_index] = id;
       register_device(id, label);
     }
@@ -2109,7 +2121,7 @@ void TigoWebServer::build_yaml_json(PSRAMString& json, const std::set<std::strin
     for (const auto &node : assigned_nodes) {
       auto it = mppt_to_inverter.find(node.cca_inverter_label);
       std::string display = (it != mppt_to_inverter.end()) ? it->second : std::string("Unassigned");
-      std::string id = "tigo_inverter_" + slugify(display);
+      std::string id = make_id("inverter", display);
       node_device_id[node.sensor_index] = id;
       register_device(id, display);
     }
