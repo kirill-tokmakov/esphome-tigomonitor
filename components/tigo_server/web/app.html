@@ -804,7 +804,16 @@
       <div class="tools-card">
         <p class="hint">Pick the sensors you want exposed to ESPHome / Home Assistant. The block below mirrors what you'd paste into your <code>esphome:</code> YAML.</p>
 
-        <h3 style="margin-top:8px">Per-device sensors</h3>
+        <h3 style="margin-top:8px">Group panels into HA devices</h3>
+        <p class="hint" style="margin-top:-4px">Adds an <code>esphome.devices</code> block and a <code>device_id</code> per panel so Home Assistant groups entities by physical hardware.</p>
+        <div class="tools-actions" id="tools-grouping" role="radiogroup" aria-label="Grouping granularity">
+          <label><input type="radio" name="tools-grouping" value="mppt" checked> Per MPPT</label>
+          <label><input type="radio" name="tools-grouping" value="inverter"> Per inverter</label>
+          <label><input type="radio" name="tools-grouping" value="panel"> Per panel</label>
+          <label><input type="radio" name="tools-grouping" value="none"> Flat (no devices)</label>
+        </div>
+
+        <h3 style="margin-top:14px">Per-device sensors</h3>
         <div class="checkbox-grid" id="tools-dev-grid"></div>
         <div class="tools-actions">
           <button class="btn" data-tools-pick="dev-all">Select all</button>
@@ -2121,7 +2130,10 @@
         .map(i => i.dataset.toolsDev).join(',');
       const hub = [...document.querySelectorAll('#tools-hub-grid input:checked')]
         .map(i => i.dataset.toolsHub).join(',');
-      const r = await apiFetch(`/api/yaml?sensors=${dev}&hub_sensors=${hub}`);
+      const groupingEl = document.querySelector('#tools-grouping input:checked');
+      const grouping = groupingEl ? groupingEl.value : 'mppt';
+      try { localStorage.setItem('tools-grouping', grouping); } catch (e) {}
+      const r = await apiFetch(`/api/yaml?sensors=${dev}&hub_sensors=${hub}&grouping=${grouping}`);
       if (!r.ok) throw new Error('/api/yaml ' + r.status);
       const data = await r.json();
       document.getElementById('tools-yaml').textContent = data.yaml || '';
@@ -2154,6 +2166,16 @@
   }
 
   toolsBuildGrids();
+  // Restore saved grouping selection (defaults to "mppt" in HTML).
+  try {
+    const savedGrouping = localStorage.getItem('tools-grouping');
+    if (savedGrouping) {
+      const el = document.querySelector(`#tools-grouping input[value="${savedGrouping}"]`);
+      if (el) el.checked = true;
+    }
+  } catch (e) {}
+  document.querySelectorAll('#tools-grouping input').forEach(r =>
+    r.addEventListener('change', refreshTools));
   document.querySelectorAll('[data-tools-pick]').forEach(btn => {
     btn.addEventListener('click', () => toolsPick(btn.dataset.toolsPick));
   });

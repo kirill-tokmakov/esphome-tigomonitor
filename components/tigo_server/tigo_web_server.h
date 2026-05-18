@@ -13,6 +13,9 @@
 #include <driver/temperature_sensor.h>
 #include <vector>
 #include <string>
+#include <set>
+#include <map>
+#include <utility>
 #include <ctime>
 
 // Forward declare Logger and Light from esphome
@@ -122,7 +125,7 @@ class TigoWebServer : public Component {
   void build_energy_history_json(PSRAMString& json);
   void build_inverters_json(PSRAMString& json);
   void build_esp_status_json(PSRAMString& json);
-  void build_yaml_json(PSRAMString& json, const std::set<std::string>& selected_sensors, const std::set<std::string>& selected_hub_sensors);
+  void build_yaml_json(PSRAMString& json, const std::set<std::string>& selected_sensors, const std::set<std::string>& selected_hub_sensors, const std::string& grouping);
   void build_cca_info_json(PSRAMString& json);
 };
 

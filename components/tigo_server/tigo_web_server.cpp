@@ -1052,7 +1052,8 @@ esp_err_t TigoWebServer::api_yaml_handler(httpd_req_t *req) {
   char query[512];
   std::set<std::string> selected_sensors;
   std::set<std::string> selected_hub_sensors;
-  
+  std::string grouping = "none";  // none | panel | mppt | inverter
+
   if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
     char sensors_param[400];
     if (httpd_query_key_value(query, "sensors", sensors_param, sizeof(sensors_param)) == ESP_OK) {
@@ -1060,7 +1061,7 @@ esp_err_t TigoWebServer::api_yaml_handler(httpd_req_t *req) {
       std::string sensors_str(sensors_param);
       size_t start = 0;
       size_t end = sensors_str.find(',');
-      
+
       while (end != std::string::npos) {
         selected_sensors.insert(sensors_str.substr(start, end - start));
         start = end + 1;
@@ -1068,14 +1069,14 @@ esp_err_t TigoWebServer::api_yaml_handler(httpd_req_t *req) {
       }
       selected_sensors.insert(sensors_str.substr(start));
     }
-    
+
     char hub_sensors_param[400];
     if (httpd_query_key_value(query, "hub_sensors", hub_sensors_param, sizeof(hub_sensors_param)) == ESP_OK) {
       // Parse comma-separated hub sensor list
       std::string hub_sensors_str(hub_sensors_param);
       size_t start = 0;
       size_t end = hub_sensors_str.find(',');
-      
+
       while (end != std::string::npos) {
         selected_hub_sensors.insert(hub_sensors_str.substr(start, end - start));
         start = end + 1;
@@ -1083,15 +1084,23 @@ esp_err_t TigoWebServer::api_yaml_handler(httpd_req_t *req) {
       }
       selected_hub_sensors.insert(hub_sensors_str.substr(start));
     }
+
+    char grouping_param[32];
+    if (httpd_query_key_value(query, "grouping", grouping_param, sizeof(grouping_param)) == ESP_OK) {
+      std::string g(grouping_param);
+      if (g == "panel" || g == "mppt" || g == "inverter" || g == "none") {
+        grouping = g;
+      }
+    }
   }
-  
+
   // If no sensors specified, use default set
   if (selected_sensors.empty()) {
     selected_sensors = {"power_in", "peak_power", "voltage_in", "voltage_out", "current_in", "current_out", "power_out", "temperature", "rssi"};
   }
-  
+
   PSRAMString json_buffer;
-  server->build_yaml_json(json_buffer, selected_sensors, selected_hub_sensors);
+  server->build_yaml_json(json_buffer, selected_sensors, selected_hub_sensors, grouping);
   
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -2026,7 +2035,7 @@ void TigoWebServer::build_esp_status_json(PSRAMString& json) {
   json.append(buffer);
 }
 
-void TigoWebServer::build_yaml_json(PSRAMString& json, const std::set<std::string>& selected_sensors, const std::set<std::string>& selected_hub_sensors) {
+void TigoWebServer::build_yaml_json(PSRAMString& json, const std::set<std::string>& selected_sensors, const std::set<std::string>& selected_hub_sensors, const std::string& grouping) {
   PSRAMString yaml_text;
   const auto node_table = parent_->snapshot_node_table();
 
@@ -2037,11 +2046,89 @@ void TigoWebServer::build_yaml_json(PSRAMString& json, const std::set<std::strin
       assigned_nodes.push_back(node);
     }
   }
-  
+
   // Sort by sensor index
   std::sort(assigned_nodes.begin(), assigned_nodes.end(),
             [](const auto &a, const auto &b) { return a.sensor_index < b.sensor_index; });
-  
+
+  // Resolve effective grouping: "inverter" falls back to "mppt" if no
+  // inverters are configured (otherwise every panel lands on the same
+  // fallback bucket).
+  std::string effective_grouping = grouping;
+  if (effective_grouping == "inverter" && parent_->get_inverters().empty()) {
+    effective_grouping = "mppt";
+  }
+
+  auto slugify = [](const std::string &s) -> std::string {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+      if (c >= 'A' && c <= 'Z') out.push_back(c + ('a' - 'A'));
+      else if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) out.push_back(c);
+      else if (!out.empty() && out.back() != '_') out.push_back('_');
+    }
+    while (!out.empty() && out.back() == '_') out.pop_back();
+    if (out.empty() || (out[0] >= '0' && out[0] <= '9')) out = "x_" + out;
+    return out;
+  };
+
+  std::map<int, std::string> node_device_id;
+  std::vector<std::pair<std::string, std::string>> devices;
+  std::set<std::string> seen_ids;
+  auto register_device = [&](const std::string &id, const std::string &display) {
+    if (seen_ids.insert(id).second) {
+      devices.emplace_back(id, display);
+    }
+  };
+
+  if (effective_grouping == "panel") {
+    for (const auto &node : assigned_nodes) {
+      std::string idx_str = std::to_string(node.sensor_index + 1);
+      std::string display = !node.cca_label.empty() ? node.cca_label
+                                                    : ("Tigo Panel " + idx_str);
+      std::string id = "tigo_panel_" + idx_str;
+      node_device_id[node.sensor_index] = id;
+      register_device(id, display);
+    }
+  } else if (effective_grouping == "mppt") {
+    for (const auto &node : assigned_nodes) {
+      std::string label = node.cca_inverter_label.empty() ? std::string("Unassigned MPPT")
+                                                          : node.cca_inverter_label;
+      std::string id = "tigo_mppt_" + slugify(label);
+      node_device_id[node.sensor_index] = id;
+      register_device(id, label);
+    }
+  } else if (effective_grouping == "inverter") {
+    std::map<std::string, std::string> mppt_to_inverter;
+    for (const auto &inv : parent_->get_inverters()) {
+      const std::string &name = inv.display_name.empty() ? inv.name : inv.display_name;
+      for (const auto &mppt : inv.mppt_labels) {
+        mppt_to_inverter[mppt] = name;
+      }
+    }
+    for (const auto &node : assigned_nodes) {
+      auto it = mppt_to_inverter.find(node.cca_inverter_label);
+      std::string display = (it != mppt_to_inverter.end()) ? it->second : std::string("Unassigned");
+      std::string id = "tigo_inverter_" + slugify(display);
+      node_device_id[node.sensor_index] = id;
+      register_device(id, display);
+    }
+  }
+
+  if (!devices.empty()) {
+    yaml_text.append("# Add these device entries under your existing `esphome:` block.\n");
+    yaml_text.append("esphome:\n");
+    yaml_text.append("  devices:\n");
+    for (const auto &d : devices) {
+      yaml_text.append("    - id: ");
+      yaml_text.append(d.first.c_str());
+      yaml_text.append("\n      name: \"");
+      yaml_text.append(d.second.c_str());
+      yaml_text.append("\"\n");
+    }
+    yaml_text.append("\n");
+  }
+
   yaml_text.append("sensor:\n");
   
   // Add hub-level sensors if any are selected
@@ -2140,7 +2227,14 @@ void TigoWebServer::build_yaml_json(PSRAMString& json, const std::set<std::strin
     yaml_text.append("    name: \"");
     yaml_text.append(device_name.c_str());
     yaml_text.append("\"\n");
-    
+
+    auto it_dev = node_device_id.find(node.sensor_index);
+    if (it_dev != node_device_id.end()) {
+      yaml_text.append("    device_id: ");
+      yaml_text.append(it_dev->second.c_str());
+      yaml_text.append("\n");
+    }
+
     // Add only selected sensors
     if (selected_sensors.count("power_in") > 0 || selected_sensors.count("power") > 0) {
       yaml_text.append("    power_in: {}\n");

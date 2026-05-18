@@ -5,6 +5,7 @@ from esphome.components import sensor, text_sensor
 from esphome.const import (
     CONF_ID,
     CONF_ADDRESS,
+    CONF_DEVICE_ID,
     CONF_NAME,
     DEVICE_CLASS_POWER,
     DEVICE_CLASS_VOLTAGE,
@@ -81,7 +82,8 @@ def _tigo_text_sensor_schema(**kwargs):
 def _auto_template_sensor_config(config):
     """Auto-template sensor configs with name and id if not provided"""
     base_name = config[CONF_NAME]
-    
+    parent_device_id = config.get(CONF_DEVICE_ID)
+
     # Sensor configurations with their suffixes
     sensor_configs = [
         (CONF_POWER_IN, "Power In"),
@@ -102,38 +104,45 @@ def _auto_template_sensor_config(config):
         (CONF_POWER_FACTOR, "Power Factor"),
         (CONF_LOAD_FACTOR, "Load Factor"),
     ]
-    
+
     for conf_key, suffix in sensor_configs:
         if conf_key in config:
             sensor_config = config[conf_key]
-            
+
             # Auto-generate name if not provided
             if CONF_NAME not in sensor_config:
                 sensor_config[CONF_NAME] = f"{base_name} {suffix}"
-                
+
             # Auto-generate ID if not provided
             if CONF_ID not in sensor_config:
                 # Create a valid ID by converting to lowercase and replacing spaces/hyphens with underscores
                 base_id = base_name.lower().replace(' ', '_').replace('-', '_')
                 suffix_id = suffix.lower().replace(' ', '_').replace('-', '_')
-                
+
                 # Special handling for power sum sensor (no device-specific suffix)
                 if conf_key == CONF_POWER_SUM:
                     id_string = f"{base_id}_power_sum"
                 else:
                     id_string = f"{base_id}_{suffix_id}"
-                    
+
                 # Use appropriate sensor type for ID declaration
                 if conf_key in [CONF_BARCODE, CONF_FIRMWARE_VERSION, CONF_DEVICE_INFO]:
                     sensor_config[CONF_ID] = cv.declare_id(text_sensor.TextSensor)(id_string)
                 else:
                     sensor_config[CONF_ID] = cv.declare_id(sensor.Sensor)(id_string)
-            
+
+            # Propagate device_id from the parent device entry unless the
+            # child sub-sensor explicitly overrides it. Lets users write
+            # `device_id: inverter_1` once at the device level instead of
+            # repeating it on power_in / peak_power / voltage_in / ...
+            if parent_device_id is not None and CONF_DEVICE_ID not in sensor_config:
+                sensor_config[CONF_DEVICE_ID] = parent_device_id
+
             # Add default fields for text sensors (skip None values to avoid C++ generation issues)
             if conf_key in [CONF_BARCODE, CONF_FIRMWARE_VERSION, CONF_DEVICE_INFO]:
                 if "disabled_by_default" not in sensor_config:
                     sensor_config["disabled_by_default"] = False
-    
+
     return config
 
 # Schema for individual device sensors
@@ -142,6 +151,10 @@ DEVICE_CONFIG_SCHEMA = cv.All(
         cv.GenerateID(CONF_TIGO_MONITOR_ID): cv.use_id(TigoMonitorComponent),
         cv.Required(CONF_ADDRESS): cv.string,
         cv.Required(CONF_NAME): cv.string,
+        # Optional sub-device assignment. Set once here and it propagates to
+        # every selected sub-sensor below (power_in, peak_power, ...). The
+        # per-sensor `device_id` still wins if you want to override one.
+        cv.Optional(CONF_DEVICE_ID): cv.sub_device_id,
         cv.Optional(CONF_POWER_IN): _tigo_sensor_schema(
             unit_of_measurement=UNIT_WATT,
             accuracy_decimals=0,
