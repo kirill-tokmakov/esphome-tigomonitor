@@ -236,6 +236,49 @@
   .panel-heat-rating.bad  { background: var(--bad);  }
   .panel-heat-tile.dead .panel-heat-rating { display: none; }
   .panel-heat-tile:hover .panel-bar-tip { opacity: 1; }
+  .panel-heat-tile { cursor: pointer; }
+
+  /* Panel detail modal (desktop only — hidden on mobile via @media below) */
+  .panel-modal {
+    position: fixed; inset: 0; z-index: 100;
+    display: none; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .panel-modal.open { display: flex; }
+  .panel-modal-backdrop {
+    position: absolute; inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+  }
+  .panel-modal-card {
+    position: relative;
+    background: var(--bg-1);
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px 22px;
+    width: min(900px, 96vw);
+    max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  }
+  .panel-modal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+  .panel-modal-title { font-size: 18px; font-weight: 600; }
+  .panel-modal-sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+  .panel-modal-close {
+    background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--text); cursor: pointer;
+    width: 32px; height: 32px; border-radius: 8px;
+    font-size: 16px; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .panel-modal-close:hover { background: var(--bg-3); }
+  .panel-modal-stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px; margin-bottom: 16px;
+  }
+  .panel-modal-stat {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px;
+  }
+  .panel-modal-stat-lbl { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
+  .panel-modal-stat-val { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
 
   .panel-string-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 8px; }
   .panel-string-label { width: 90px; font-size: 11px; color: var(--text-dim); padding-top: 4px; flex-shrink: 0; }
@@ -477,6 +520,9 @@
     }
     .panel-heat-tile .pht-id { font-size: 12px; }
     .panel-heat-tile .pht-w { font-size: 11px; }
+    .panel-heat-tile { cursor: default; }
+    /* Panel detail modal is desktop-only — too cramped on phone */
+    .panel-modal { display: none !important; }
 
     .legend { flex-wrap: wrap; gap: 8px; }
 
@@ -1019,6 +1065,41 @@
 
   <!-- Global toast (lives outside any view so it's reachable from any tab) -->
   <div id="app-toast" class="toast"></div>
+
+  <!-- Panel detail modal (desktop only — hidden via @media on mobile) -->
+  <div id="panel-modal" class="panel-modal" aria-hidden="true">
+    <div class="panel-modal-backdrop" id="panel-modal-backdrop"></div>
+    <div class="panel-modal-card" role="dialog" aria-modal="true" aria-labelledby="panel-modal-title">
+      <div class="panel-modal-head">
+        <div>
+          <div class="panel-modal-title" id="panel-modal-title">—</div>
+          <div class="panel-modal-sub" id="panel-modal-sub">—</div>
+        </div>
+        <button class="panel-modal-close" id="panel-modal-close" aria-label="Close">✕</button>
+      </div>
+      <div class="panel-modal-stats" id="panel-modal-stats"></div>
+      <div class="chart-card" style="margin-bottom:0">
+        <div class="chart-head">
+          <div class="chart-title">Power history</div>
+          <div class="chart-stat" style="display:flex;align-items:center;gap:10px">
+            <div class="seg" id="panel-modal-range">
+              <button data-range="day" class="active">24h</button>
+              <button data-range="week">7d</button>
+              <button data-range="month">30d</button>
+            </div>
+            <span>query <strong id="panel-modal-ms">—</strong></span>
+          </div>
+        </div>
+        <svg id="panel-modal-chart" class="chart-area" viewBox="0 0 1000 220">
+          <g id="panel-modal-grid"></g>
+          <path id="panel-modal-fill" d="" fill="var(--accent)" opacity="0.12"/>
+          <polyline id="panel-modal-poly" points="" fill="none" stroke="var(--accent)" stroke-width="1.8"/>
+          <g id="panel-modal-y-labels"></g>
+          <g id="panel-modal-x-labels"></g>
+        </svg>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -1354,7 +1435,14 @@
             if (med > 0) tipParts.push(`${Math.round((w / med) * 100)}% of string median (${Math.round(med)}W)`);
             if (ratedPct != null) tipParts.push(`${ratedPct}% of nameplate (${rating}W)`);
             const stripe = rCls ? `<div class="panel-heat-rating ${rCls}"></div>` : '';
-            tiles += `<div class="panel-heat-tile ${cls}">
+            const bc6 = (p.barcode || '').slice(-6);
+            tiles += `<div class="panel-heat-tile ${cls}"
+              data-addr="${p.addr || ''}"
+              data-barcode6="${bc6}"
+              data-name="${id}"
+              data-string="${s.display_label || s.label}"
+              data-mppt="${s.mppt || ''}"
+              data-power="${w.toFixed(1)}">
               <span class="pht-id">${id}</span>
               <span class="pht-w">${wText}${pctText}</span>
               ${stripe}
@@ -1493,6 +1581,12 @@
         peakPower += i.peak_power || 0;
       }
 
+      // Stash latest device snapshot so the panel detail modal can show
+      // live readings on click without refetching.
+      const byAddr = {};
+      for (const d of (dev.devices || [])) byAddr[d.addr] = d;
+      window.__lastDevicesByAddr = byAddr;
+
       renderHero(ov, monthSum, monthDays, peakPower);
       renderInverters(inv.inverters || [], dev.devices || []);
       renderAlerts(inv.inverters || [], dev.devices || []);
@@ -1509,6 +1603,205 @@
   }
   refreshDashboard();
   setInterval(refreshDashboard, 5000);
+
+  // ===== Panel detail modal =====
+  // Click a heat tile → modal with live readings + per-panel power history.
+  // Desktop only; @media (max-width:768px) hides the modal entirely on phones.
+  let panelSlotByBarcode = {};         // last-6 barcode -> tsdb slot index
+  let panelModalRange = 'day';
+  let panelModalBarcode6 = null;
+
+  async function ensurePanelSlotMap(force) {
+    if (!force && Object.keys(panelSlotByBarcode).length > 0) return panelSlotByBarcode;
+    try {
+      const r = await apiFetch('/api/panels');
+      if (!r.ok) return panelSlotByBarcode;
+      const j = await r.json();
+      const map = {};
+      for (const s of (j.slots || [])) {
+        if (s.barcode) map[s.barcode] = s.slot;
+      }
+      panelSlotByBarcode = map;
+    } catch (e) { /* leave whatever we had */ }
+    return panelSlotByBarcode;
+  }
+
+  function isMobileViewport() {
+    return window.matchMedia('(max-width: 768px)').matches;
+  }
+
+  function openPanelModal(data) {
+    if (isMobileViewport()) return;
+    const modal = document.getElementById('panel-modal');
+    const title = data.power > 0
+      ? `${data.name} · ${Math.round(data.power)} W`
+      : data.name;
+    document.getElementById('panel-modal-title').textContent = title;
+    const subBits = [];
+    if (data.string) subBits.push(data.string);
+    if (data.mppt) subBits.push(data.mppt);
+    if (data.barcode6) subBits.push(`barcode ${data.barcode6}`);
+    document.getElementById('panel-modal-sub').textContent = subBits.join(' · ') || '—';
+
+    // Live readings from the most recent /api/devices snapshot.
+    const dev = (window.__lastDevicesByAddr || {})[data.addr] || {};
+    const statsEl = document.getElementById('panel-modal-stats');
+    const fmt = (v, suf, dec) => (v != null ? v.toFixed(dec == null ? 1 : dec) + (suf || '') : '—');
+    const tempStr = (dev.temperature != null)
+      ? fmtTemp(dev.temperature, 1) + tempUnit()
+      : '—';
+    const rssiStr = (dev.rssi != null) ? `${dev.rssi} dB` : '—';
+    const stats = [
+      ['Power in',    fmt(dev.power_in, ' W', 0)],
+      ['Voltage in',  fmt(dev.voltage_in, ' V')],
+      ['Current in',  fmt(dev.current_in, ' A', 2)],
+      ['Voltage out', fmt(dev.voltage_out, ' V')],
+      ['Temperature', tempStr],
+      ['Efficiency',  fmt(dev.efficiency, '%', 0)],
+      ['Duty cycle',  fmt(dev.duty_cycle, '', 0)],
+      ['RSSI',        rssiStr],
+    ];
+    statsEl.innerHTML = stats.map(([l, v]) =>
+      `<div class="panel-modal-stat"><div class="panel-modal-stat-lbl">${l}</div><div class="panel-modal-stat-val">${v}</div></div>`
+    ).join('');
+
+    panelModalBarcode6 = data.barcode6;
+    panelModalRange = 'day';
+    document.querySelectorAll('#panel-modal-range button').forEach(b =>
+      b.classList.toggle('active', b.getAttribute('data-range') === 'day'));
+
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+    fetchAndRenderPanelHistory();
+  }
+
+  function closePanelModal() {
+    const modal = document.getElementById('panel-modal');
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+    panelModalBarcode6 = null;
+  }
+
+  async function fetchAndRenderPanelHistory() {
+    const sig = panelModalBarcode6;
+    if (!sig) return;
+    const msEl = document.getElementById('panel-modal-ms');
+    const slotMap = await ensurePanelSlotMap();
+    const slot = slotMap[sig];
+    if (slot == null) {
+      msEl.textContent = 'no slot yet';
+      renderPanelModalChart([], null);
+      return;
+    }
+    msEl.textContent = '…';
+    try {
+      const r = await apiFetch(`/api/history/panel?slot=${slot}&range=${panelModalRange}`);
+      if (!r.ok) { msEl.textContent = 'error'; renderPanelModalChart([], null); return; }
+      const j = await r.json();
+      renderPanelModalChart(j.records || [], j.query_ms);
+    } catch (e) {
+      msEl.textContent = 'error';
+      renderPanelModalChart([], null);
+    }
+  }
+
+  function renderPanelModalChart(records, queryMs) {
+    const grid = document.getElementById('panel-modal-grid');
+    const poly = document.getElementById('panel-modal-poly');
+    const fill = document.getElementById('panel-modal-fill');
+    const yLab = document.getElementById('panel-modal-y-labels');
+    const xLab = document.getElementById('panel-modal-x-labels');
+    const msEl = document.getElementById('panel-modal-ms');
+
+    const W = chartViewBoxWidth('panel-modal-chart');
+    grid.innerHTML =
+      `<line x1="0" y1="55"  x2="${W}" y2="55"  stroke="var(--border)" stroke-dasharray="2,3"/>` +
+      `<line x1="0" y1="110" x2="${W}" y2="110" stroke="var(--border)" stroke-dasharray="2,3"/>` +
+      `<line x1="0" y1="165" x2="${W}" y2="165" stroke="var(--border)" stroke-dasharray="2,3"/>`;
+    yLab.innerHTML = '';
+    xLab.innerHTML = '';
+    if (queryMs != null) msEl.textContent = `${queryMs} ms`;
+
+    if (!records || records.length === 0) {
+      poly.setAttribute('points', '');
+      fill.setAttribute('d', '');
+      return;
+    }
+
+    const tMin = records[0].t;
+    const tMax = records[records.length - 1].t;
+    const tSpan = Math.max(1, tMax - tMin);
+    let pMax = 0;
+    for (const r of records) if (r.p > pMax) pMax = r.p;
+    // Panel-scale chart: round to nearest 50W so an idle string isn't blank.
+    const yScale = Math.max(50, Math.ceil(pMax / 50) * 50);
+
+    const pts = records.map(r => {
+      const x = ((r.t - tMin) / tSpan) * W;
+      const y = 210 - (r.p / yScale) * 200;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    poly.setAttribute('points', pts.join(' '));
+    fill.setAttribute('d', `M${pts.join(' L')} L${W},210 L0,210 Z`);
+
+    const yLabel = (frac, y) =>
+      `<text x="6" y="${y}" fill="var(--text-faint)" font-size="10">${Math.round(yScale * frac)} W</text>`;
+    yLab.innerHTML = yLabel(0.75, 50) + yLabel(0.50, 105) + yLabel(0.25, 160);
+
+    const ticks = 4;
+    let xHtml = '';
+    for (let i = 0; i <= ticks; ++i) {
+      const x = i / ticks * W;
+      const t = tMin + i / ticks * tSpan;
+      const d = new Date(t * 1000);
+      const lbl = panelModalRange === 'day'
+        ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+        : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      const anchor = i === 0 ? 'start' : i === ticks ? 'end' : 'middle';
+      xHtml += `<text x="${x.toFixed(0)}" y="218" fill="var(--text-faint)" font-size="10" text-anchor="${anchor}">${lbl}</text>`;
+    }
+    xLab.innerHTML = xHtml;
+  }
+
+  // Delegated tile click — bubbles up from .panel-heat-tile.
+  document.getElementById('view-dashboard').addEventListener('click', (ev) => {
+    const tile = ev.target.closest('.panel-heat-tile');
+    if (!tile) return;
+    openPanelModal({
+      addr: tile.getAttribute('data-addr') || '',
+      barcode6: tile.getAttribute('data-barcode6') || '',
+      name: tile.getAttribute('data-name') || '—',
+      string: tile.getAttribute('data-string') || '',
+      mppt: tile.getAttribute('data-mppt') || '',
+      power: parseFloat(tile.getAttribute('data-power') || '0'),
+    });
+  });
+
+  document.getElementById('panel-modal-close').addEventListener('click', closePanelModal);
+  document.getElementById('panel-modal-backdrop').addEventListener('click', closePanelModal);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const m = document.getElementById('panel-modal');
+      if (m && m.classList.contains('open')) closePanelModal();
+    }
+  });
+
+  document.querySelectorAll('#panel-modal-range button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      panelModalRange = btn.getAttribute('data-range');
+      document.querySelectorAll('#panel-modal-range button').forEach(b =>
+        b.classList.toggle('active', b === btn));
+      fetchAndRenderPanelHistory();
+    });
+  });
+
+  // Redraw the chart on resize so the SVG viewBox tracks the new width.
+  window.addEventListener('resize', () => {
+    const modal = document.getElementById('panel-modal');
+    if (modal && modal.classList.contains('open') && panelModalBarcode6) {
+      fetchAndRenderPanelHistory();
+    }
+  });
 
   // Re-render the dashboard immediately when nav lands on it.
   document.querySelector('#nav button[data-view="dashboard"]').addEventListener('click', refreshDashboard);
