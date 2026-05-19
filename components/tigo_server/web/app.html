@@ -279,6 +279,8 @@
   }
   .panel-modal-stat-lbl { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
   .panel-modal-stat-val { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .legend-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); }
+  .legend-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 
   .panel-string-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 8px; }
   .panel-string-label { width: 90px; font-size: 11px; color: var(--text-dim); padding-top: 4px; flex-shrink: 0; }
@@ -1081,7 +1083,11 @@
       <div class="chart-card" style="margin-bottom:0">
         <div class="chart-head">
           <div class="chart-title">Power history</div>
-          <div class="chart-stat" style="display:flex;align-items:center;gap:10px">
+          <div class="chart-stat" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span class="legend-chip"><span class="legend-swatch" style="background:var(--accent)"></span>this panel</span>
+            <span class="legend-chip" id="panel-modal-peer-legend" style="display:none">
+              <span class="legend-swatch" style="background:var(--text-dim);opacity:0.7"></span>string median
+            </span>
             <div class="seg" id="panel-modal-range">
               <button data-range="day" class="active">24h</button>
               <button data-range="week">7d</button>
@@ -1093,6 +1099,9 @@
         <svg id="panel-modal-chart" class="chart-area" viewBox="0 0 1000 220">
           <g id="panel-modal-grid"></g>
           <path id="panel-modal-fill" d="" fill="var(--accent)" opacity="0.12"/>
+          <polyline id="panel-modal-peer-poly" points="" fill="none"
+                    stroke="var(--text-dim)" stroke-width="1.2"
+                    stroke-dasharray="4,3" opacity="0.7"/>
           <polyline id="panel-modal-poly" points="" fill="none" stroke="var(--accent)" stroke-width="1.8"/>
           <g id="panel-modal-y-labels"></g>
           <g id="panel-modal-x-labels"></g>
@@ -1590,6 +1599,7 @@
       renderHero(ov, monthSum, monthDays, peakPower);
       renderInverters(inv.inverters || [], dev.devices || []);
       renderAlerts(inv.inverters || [], dev.devices || []);
+      if (typeof refreshPanelModalIfOpen === 'function') refreshPanelModalIfOpen();
       document.getElementById('dash-meta').textContent =
         `refreshing every 5s · last update ${new Date().toLocaleTimeString()}`;
       dashLastErr = null;
@@ -1605,11 +1615,14 @@
   setInterval(refreshDashboard, 5000);
 
   // ===== Panel detail modal =====
-  // Click a heat tile → modal with live readings + per-panel power history.
+  // Click a heat tile → modal with live readings + per-panel power history,
+  // optionally overlaid with the string median across peer panels.
   // Desktop only; @media (max-width:768px) hides the modal entirely on phones.
   let panelSlotByBarcode = {};         // last-6 barcode -> tsdb slot index
   let panelModalRange = 'day';
+  let panelModalAddr = null;
   let panelModalBarcode6 = null;
+  let panelModalName = '';
 
   async function ensurePanelSlotMap(force) {
     if (!force && Object.keys(panelSlotByBarcode).length > 0) return panelSlotByBarcode;
@@ -1630,21 +1643,18 @@
     return window.matchMedia('(max-width: 768px)').matches;
   }
 
-  function openPanelModal(data) {
-    if (isMobileViewport()) return;
-    const modal = document.getElementById('panel-modal');
-    const title = data.power > 0
-      ? `${data.name} · ${Math.round(data.power)} W`
-      : data.name;
-    document.getElementById('panel-modal-title').textContent = title;
-    const subBits = [];
-    if (data.string) subBits.push(data.string);
-    if (data.mppt) subBits.push(data.mppt);
-    if (data.barcode6) subBits.push(`barcode ${data.barcode6}`);
-    document.getElementById('panel-modal-sub').textContent = subBits.join(' · ') || '—';
+  // Renders title + stat cards from the latest /api/devices snapshot.
+  // Pulled out of openPanelModal so the dashboard's 5s tick can refresh
+  // live readings while the modal is open.
+  function renderPanelModalLive() {
+    if (!panelModalAddr) return;
+    const dev = (window.__lastDevicesByAddr || {})[panelModalAddr] || {};
+    const power = dev.power_in;
+    document.getElementById('panel-modal-title').textContent =
+      (power != null && power > 0)
+        ? `${panelModalName} · ${Math.round(power)} W`
+        : panelModalName;
 
-    // Live readings from the most recent /api/devices snapshot.
-    const dev = (window.__lastDevicesByAddr || {})[data.addr] || {};
     const statsEl = document.getElementById('panel-modal-stats');
     const fmt = (v, suf, dec) => (v != null ? v.toFixed(dec == null ? 1 : dec) + (suf || '') : '—');
     const tempStr = (dev.temperature != null)
@@ -1664,9 +1674,24 @@
     statsEl.innerHTML = stats.map(([l, v]) =>
       `<div class="panel-modal-stat"><div class="panel-modal-stat-lbl">${l}</div><div class="panel-modal-stat-val">${v}</div></div>`
     ).join('');
+  }
 
+  function openPanelModal(data) {
+    if (isMobileViewport()) return;
+    const modal = document.getElementById('panel-modal');
+    panelModalAddr = data.addr;
     panelModalBarcode6 = data.barcode6;
+    panelModalName = data.name || '—';
     panelModalRange = 'day';
+
+    const subBits = [];
+    if (data.string) subBits.push(data.string);
+    if (data.mppt) subBits.push(data.mppt);
+    if (data.barcode6) subBits.push(`barcode ${data.barcode6}`);
+    document.getElementById('panel-modal-sub').textContent = subBits.join(' · ') || '—';
+
+    renderPanelModalLive();
+
     document.querySelectorAll('#panel-modal-range button').forEach(b =>
       b.classList.toggle('active', b.getAttribute('data-range') === 'day'));
 
@@ -1679,35 +1704,105 @@
     const modal = document.getElementById('panel-modal');
     modal.classList.remove('open');
     modal.setAttribute('aria-hidden', 'true');
+    panelModalAddr = null;
     panelModalBarcode6 = null;
+    panelModalName = '';
+  }
+
+  // Find tsdb slots for all panels in the same string_label as the current
+  // panel (excluding self). Used to draw a "string median" overlay so an
+  // anomalous dip in one panel is visually separable from a string-wide
+  // shading event.
+  function findPanelModalPeerSlots(slotMap) {
+    const byAddr = window.__lastDevicesByAddr || {};
+    const selfDev = byAddr[panelModalAddr];
+    if (!selfDev) return [];
+    const selfString = selfDev.string_label || '';
+    if (!selfString) return [];
+    const peers = [];
+    for (const addr in byAddr) {
+      if (addr === panelModalAddr) continue;
+      const d = byAddr[addr];
+      if ((d.string_label || '') !== selfString) continue;
+      const bc6 = (d.barcode || '').slice(-6);
+      const ps = slotMap[bc6];
+      if (ps != null) peers.push(ps);
+    }
+    return peers;
   }
 
   async function fetchAndRenderPanelHistory() {
     const sig = panelModalBarcode6;
     if (!sig) return;
     const msEl = document.getElementById('panel-modal-ms');
+    const peerLegend = document.getElementById('panel-modal-peer-legend');
+    peerLegend.style.display = 'none';
+
     const slotMap = await ensurePanelSlotMap();
     const slot = slotMap[sig];
     if (slot == null) {
       msEl.textContent = 'no slot yet';
-      renderPanelModalChart([], null);
+      renderPanelModalChart([], [], null);
       return;
     }
     msEl.textContent = '…';
+
+    const peerSlots = findPanelModalPeerSlots(slotMap);
+    const range = panelModalRange;
     try {
-      const r = await apiFetch(`/api/history/panel?slot=${slot}&range=${panelModalRange}`);
-      if (!r.ok) { msEl.textContent = 'error'; renderPanelModalChart([], null); return; }
-      const j = await r.json();
-      renderPanelModalChart(j.records || [], j.query_ms);
+      const mainP = apiFetch(`/api/history/panel?slot=${slot}&range=${range}`)
+        .then(r => r.ok ? r.json() : null).catch(() => null);
+      const peerPs = peerSlots.map(s =>
+        apiFetch(`/api/history/panel?slot=${s}&range=${range}`)
+          .then(r => r.ok ? r.json() : null).catch(() => null));
+      const [mainJ, ...peerJs] = await Promise.all([mainP, ...peerPs]);
+
+      // Range/slot may have changed while in-flight; bail if so.
+      if (range !== panelModalRange || sig !== panelModalBarcode6) return;
+
+      if (!mainJ) {
+        msEl.textContent = 'error';
+        renderPanelModalChart([], [], null);
+        return;
+      }
+      const mainRecords = mainJ.records || [];
+
+      // Bucket peer powers by exact timestamp — tsdb writes all panel
+      // snapshots in the same time() batch, so t values align across slots.
+      const peerByT = new Map();
+      for (const pj of peerJs) {
+        if (!pj || !pj.records) continue;
+        for (const r of pj.records) {
+          let arr = peerByT.get(r.t);
+          if (!arr) { arr = []; peerByT.set(r.t, arr); }
+          arr.push(r.p);
+        }
+      }
+      const medianRecords = [];
+      for (const r of mainRecords) {
+        const arr = peerByT.get(r.t);
+        if (arr && arr.length >= 2) {
+          const sorted = arr.slice().sort((a, b) => a - b);
+          const mid = sorted.length >> 1;
+          const med = (sorted.length & 1)
+            ? sorted[mid]
+            : (sorted[mid - 1] + sorted[mid]) / 2;
+          medianRecords.push({ t: r.t, p: med });
+        }
+      }
+
+      if (medianRecords.length > 0) peerLegend.style.display = 'inline-flex';
+      renderPanelModalChart(mainRecords, medianRecords, mainJ.query_ms);
     } catch (e) {
       msEl.textContent = 'error';
-      renderPanelModalChart([], null);
+      renderPanelModalChart([], [], null);
     }
   }
 
-  function renderPanelModalChart(records, queryMs) {
+  function renderPanelModalChart(records, peerRecords, queryMs) {
     const grid = document.getElementById('panel-modal-grid');
     const poly = document.getElementById('panel-modal-poly');
+    const peerPoly = document.getElementById('panel-modal-peer-poly');
     const fill = document.getElementById('panel-modal-fill');
     const yLab = document.getElementById('panel-modal-y-labels');
     const xLab = document.getElementById('panel-modal-x-labels');
@@ -1725,6 +1820,7 @@
     if (!records || records.length === 0) {
       poly.setAttribute('points', '');
       fill.setAttribute('d', '');
+      peerPoly.setAttribute('points', '');
       return;
     }
 
@@ -1733,16 +1829,25 @@
     const tSpan = Math.max(1, tMax - tMin);
     let pMax = 0;
     for (const r of records) if (r.p > pMax) pMax = r.p;
+    for (const r of (peerRecords || [])) if (r.p > pMax) pMax = r.p;
     // Panel-scale chart: round to nearest 50W so an idle string isn't blank.
     const yScale = Math.max(50, Math.ceil(pMax / 50) * 50);
 
-    const pts = records.map(r => {
+    const toPts = recs => recs.map(r => {
       const x = ((r.t - tMin) / tSpan) * W;
       const y = 210 - (r.p / yScale) * 200;
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     });
-    poly.setAttribute('points', pts.join(' '));
-    fill.setAttribute('d', `M${pts.join(' L')} L${W},210 L0,210 Z`);
+
+    const mainPts = toPts(records);
+    poly.setAttribute('points', mainPts.join(' '));
+    fill.setAttribute('d', `M${mainPts.join(' L')} L${W},210 L0,210 Z`);
+
+    if (peerRecords && peerRecords.length > 0) {
+      peerPoly.setAttribute('points', toPts(peerRecords).join(' '));
+    } else {
+      peerPoly.setAttribute('points', '');
+    }
 
     const yLabel = (frac, y) =>
       `<text x="6" y="${y}" fill="var(--text-faint)" font-size="10">${Math.round(yScale * frac)} W</text>`;
@@ -1761,6 +1866,16 @@
       xHtml += `<text x="${x.toFixed(0)}" y="218" fill="var(--text-faint)" font-size="10" text-anchor="${anchor}">${lbl}</text>`;
     }
     xLab.innerHTML = xHtml;
+  }
+
+  // Hook into the dashboard's 5s refresh so live readings stay fresh while
+  // the modal is open. The dashboard already stashes window.__lastDevicesByAddr
+  // before rendering; we just re-paint the stats from that snapshot.
+  function refreshPanelModalIfOpen() {
+    const modal = document.getElementById('panel-modal');
+    if (modal && modal.classList.contains('open') && panelModalAddr) {
+      renderPanelModalLive();
+    }
   }
 
   // Delegated tile click — bubbles up from .panel-heat-tile.
