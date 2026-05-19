@@ -322,14 +322,11 @@
     background: linear-gradient(135deg, rgba(74,222,128,0.10) 0%, rgba(56,189,248,0.05) 60%, transparent 100%);
     border: 1px solid rgba(74,222,128,0.28);
     padding: 14px 18px;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    text-align: center;
   }
   .panel-modal-stat.hero .panel-modal-stat-val {
     font-size: 32px;
     color: var(--accent);
-    display: inline-flex; align-items: baseline; gap: 6px;
+    display: flex; align-items: baseline; justify-content: center; gap: 6px;
   }
   .panel-modal-stat.hero .hero-unit {
     font-size: 14px;
@@ -1721,11 +1718,7 @@
   function renderPanelModalLive() {
     if (!panelModalAddr) return;
     const dev = (window.__lastDevicesByAddr || {})[panelModalAddr] || {};
-    const power = dev.power_in;
-    document.getElementById('panel-modal-title').textContent =
-      (power != null && power > 0)
-        ? `${panelModalName} · ${Math.round(power)} W`
-        : panelModalName;
+    document.getElementById('panel-modal-title').textContent = panelModalName;
 
     const statsEl = document.getElementById('panel-modal-stats');
     const fmt = (v, suf, dec) => (v != null ? v.toFixed(dec == null ? 1 : dec) + (suf || '') : '—');
