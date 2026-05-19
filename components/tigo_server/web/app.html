@@ -70,7 +70,9 @@
 
   /* ===== Sidebar ===== */
   aside {
-    background: var(--bg-2);
+    background:
+      linear-gradient(180deg, rgba(74,222,128,0.06) 0%, rgba(56,189,248,0.03) 30%, transparent 70%),
+      linear-gradient(180deg, var(--bg-2) 0%, var(--bg-3) 100%);
     border-right: 1px solid var(--border);
     padding: 20px 0;
     display: flex;
@@ -88,7 +90,7 @@
     display: grid; place-items: center;
   }
   .brand-logo svg { width: 100%; height: 100%; display: block; }
-  .brand-name { font-weight: 600; letter-spacing: 0.2px; }
+  .brand-name { font-weight: 600; font-size: 16px; letter-spacing: 0.2px; }
   .brand-sub { font-size: 11px; color: var(--text-faint); }
 
   .overview { padding: 16px 20px; border-bottom: 1px solid var(--border); }
