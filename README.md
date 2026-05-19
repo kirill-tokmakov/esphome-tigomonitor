@@ -18,6 +18,19 @@ An ESPHome component for monitoring Tigo solar optimizers via RS485/UART. Real-t
 - **Sub-Device YAML Generator** – Tools view emits an `esphome.devices:` block and propagates `device_id` to each child sensor, with per-MPPT / per-inverter / per-panel / flat grouping
 - **Home Assistant** – Energy Dashboard compatible, full API integration, Ingress-proxy friendly
 
+## Upgrading from a previous version
+
+> ⚠ **One-time data loss + serial-flash required on this release.**
+>
+> This release reshapes the flash partition layout to make room for the new on-flash time-series database (TSDB). The repartition wipes the existing app, NVS, and any saved state on the device, and the new image can't be applied over OTA — the bootloader and partition table need to be written too.
+>
+> **Before you upgrade:**
+> 1. Open **Tools → Export** (or the legacy `/nodes` page) and save the JSON. This is the only state worth preserving — friendly names, CCA assignments, slot map.
+> 2. Flash the new firmware over **USB / serial** (e.g. `esphome run boards/<your-board>.yaml --device /dev/ttyACM0`). OTA will not work for this jump.
+> 3. After first boot, open **Tools → Import** and restore the JSON.
+>
+> Subsequent updates (within this partition layout) can use OTA again.
+
 ## Requirements
 
 | Requirement | Details |
