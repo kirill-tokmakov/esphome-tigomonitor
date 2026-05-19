@@ -147,6 +147,11 @@ class TigoHistory {
 
   QueueHandle_t queue_{nullptr};
   TaskHandle_t task_{nullptr};
+  // Given by the writer task right before it self-deletes. flush_and_close
+  // sends a sentinel snapshot then takes this; once we have it, the writer
+  // is guaranteed to no longer be touching any tsdb_t or its FILE*, so
+  // tsdb_close_h's fclose can't race the writer's fwrite.
+  SemaphoreHandle_t writer_done_{nullptr};
 };
 
 }  // namespace tigo_monitor

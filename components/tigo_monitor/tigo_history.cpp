@@ -340,6 +340,14 @@ bool TigoHistory::start_writer_task() {
     ESP_LOGE(TAG, "Failed to create tsdb writer queue");
     return false;
   }
+  // Binary semaphore the writer gives on exit, taken by flush_and_close so
+  // the close path can wait for the writer to be fully idle before fclose.
+  writer_done_ = xSemaphoreCreateBinary();
+  if (writer_done_ == nullptr) {
+    ESP_LOGE(TAG, "Failed to create tsdb writer_done semaphore");
+    vQueueDelete(queue_); queue_ = nullptr;
+    return false;
+  }
   // Stack 8 KB — tsdb_write + LittleFS ops + esp_log printf overflowed 4 KB
   // in practice. Three back-to-back writes per drain (system + 2x panels)
   // adds peak depth but stays well under 8 KB; soak shows ~3.5 KB hwm.
@@ -463,6 +471,15 @@ void TigoHistory::writer_task_loop_() {
     if (xQueueReceive(queue_, &row, portMAX_DELAY) != pdTRUE) {
       continue;
     }
+    // Sentinel: flush_and_close enqueues a row with timestamp = UINT32_MAX
+    // to tell the writer to shut down cleanly. After signaling, the writer
+    // self-deletes; the close path then runs fclose with no race possible
+    // because this task is gone before we get back to flush_and_close.
+    if (row.timestamp == 0xFFFFFFFFu) {
+      if (writer_done_ != nullptr) xSemaphoreGive(writer_done_);
+      vTaskDelete(nullptr);
+      return;  // not reached
+    }
     uint32_t t0 = (uint32_t) (esp_timer_get_time() / 1000);
 
     esp_err_t err = tsdb_write_h(system_db_, row.timestamp, row.system_values);
@@ -512,6 +529,28 @@ void TigoHistory::flush_and_close() {
            (uint32_t) (esp_timer_get_time() / 1000) < deadline) {
       vTaskDelay(pdMS_TO_TICKS(20));
     }
+  }
+
+  // Drain alone isn't enough — the writer may have already pulled the last
+  // row off the queue and be mid-fwrite. Calling fclose while the FILE's
+  // internal lock is held by the writer task trips a newlib assertion in
+  // _lock_close. Send a sentinel row, then wait for the writer to ack via
+  // writer_done_ — by the time we take that semaphore, the writer task is
+  // gone and nothing else is touching the tsdb handles.
+  if (queue_ != nullptr && task_ != nullptr && writer_done_ != nullptr) {
+    EncodedRow sentinel{};
+    sentinel.timestamp = 0xFFFFFFFFu;
+    if (xQueueSend(queue_, &sentinel, pdMS_TO_TICKS(200)) != pdTRUE) {
+      ESP_LOGW(TAG, "flush_and_close: could not enqueue writer-stop sentinel");
+    } else {
+      // 1500 ms cap covers a worst-case in-flight write (system + 2 panel DBs)
+      // even on a slow flash. If we time out we still proceed — better to
+      // risk one bad close than to spin forever and miss the OTA reboot.
+      if (xSemaphoreTake(writer_done_, pdMS_TO_TICKS(1500)) != pdTRUE) {
+        ESP_LOGW(TAG, "flush_and_close: writer did not exit within 1500 ms");
+      }
+    }
+    task_ = nullptr;
   }
 
   // Close each open tsdb_t. tsdb_close_h calls fclose on the underlying
