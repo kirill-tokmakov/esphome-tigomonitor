@@ -342,13 +342,32 @@
   .seg button.active { background: var(--accent); color: #061018; font-weight: 600; }
 
   .hist-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
-  .hist-stat-card { background: var(--bg-2); border: 1px solid var(--border); padding: 16px; border-radius: 10px; }
+  .hist-stat-card {
+    background:
+      linear-gradient(160deg, rgba(74,222,128,0.04) 0%, rgba(56,189,248,0.025) 40%, transparent 75%),
+      var(--bg-2);
+    border: 1px solid var(--border); padding: 16px; border-radius: 10px;
+  }
   .hist-stat-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
   .hist-stat-val { font-size: 24px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; }
   .hist-stat-unit { font-size: 12px; color: var(--text-dim); margin-left: 4px; font-weight: 500; }
   .hist-stat-sub { font-size: 11px; color: var(--text-faint); margin-top: 4px; }
 
-  .chart-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin-bottom: 12px; }
+  .chart-card {
+    position: relative;
+    background:
+      linear-gradient(160deg, rgba(74,222,128,0.04) 0%, rgba(56,189,248,0.025) 40%, transparent 75%),
+      var(--bg-2);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px 20px; margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .chart-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 55%, var(--accent-3) 100%);
+    pointer-events: none;
+  }
   .chart-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
   .chart-title { font-size: 14px; font-weight: 600; }
   .chart-stat { font-size: 12px; color: var(--text-dim); }
@@ -395,8 +414,19 @@
   .topo-tree { display: flex; flex-direction: column; gap: 16px; }
 
   .topo-inv {
-    background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px;
+    position: relative;
+    background:
+      linear-gradient(160deg, rgba(74,222,128,0.04) 0%, rgba(56,189,248,0.025) 40%, transparent 75%),
+      var(--bg-2);
+    border: 1px solid var(--border); border-radius: 10px;
     padding: 14px 18px;
+    overflow: hidden;
+  }
+  .topo-inv::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 55%, var(--accent-3) 100%);
+    pointer-events: none;
   }
   .topo-inv-head { display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; }
   .topo-inv-toggle { font-size: 16px; color: var(--accent); width: 18px; text-align: center; transition: transform 0.15s; }
@@ -810,6 +840,12 @@
           <div class="chart-stat">Total <strong id="hist-energy-total">—</strong></div>
         </div>
         <svg id="hist-chart-energy" class="chart-area" viewBox="0 0 1000 220">
+          <defs>
+            <linearGradient id="hist-energy-bar-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.95"/>
+              <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.45"/>
+            </linearGradient>
+          </defs>
           <g id="hist-energy-bars"></g>
           <g id="hist-energy-labels"></g>
         </svg>
@@ -2126,7 +2162,7 @@
       const h = (e / Math.max(1, maxE)) * 170;
       const y = 200 - h;
       const x = 10 + i * step + pad;
-      bars.innerHTML += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="var(--accent-2)" opacity="0.85" rx="2"/>`;
+      bars.innerHTML += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="url(#hist-energy-bar-grad)" rx="2"/>`;
       const everyN = Math.ceil(entries.length / 8);
       if (i % everyN === 0 || i === entries.length - 1) {
         const d = new Date(key);
