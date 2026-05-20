@@ -1702,10 +1702,14 @@ void TigoWebServer::build_esp_status_json(PSRAMString& json) {
   uint32_t frame_27_count = parent_->get_frame_27_count();
   
   // Get ESP32 internal temperature (using persistent sensor handle)
-  float internal_temp = 0.0f;
-  if (temp_sensor_handle_ != nullptr) {
-    temperature_sensor_get_celsius(temp_sensor_handle_, &internal_temp);
-  }
+  #if defined(SOC_TEMP_SENSOR_SUPPORTED) && SOC_TEMP_SENSOR_SUPPORTED
+    float internal_temp = 0.0f;
+    if (temp_sensor_handle_ != nullptr) {
+      temperature_sensor_get_celsius(temp_sensor_handle_, &internal_temp);
+    }
+  #else
+      // Atom Lite / обычный ESP32: внутренний температурный сенсор не поддерживается
+  #endif
   
   // Get network stats
   bool network_connected = network::is_connected();
