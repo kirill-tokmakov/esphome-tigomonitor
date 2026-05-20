@@ -8,6 +8,7 @@
 #include "esphome/core/time.h"
 #include "esphome/components/network/util.h"
 #include "esphome/components/logger/logger.h"
+#include "soc/soc_caps.h"
 #ifdef USE_LIGHT
 #include "esphome/components/light/light_state.h"
 #include "esphome/components/light/light_call.h"
@@ -361,6 +362,7 @@ void TigoWebServer::setup() {
       ESP_LOGI(TAG, "Web authentication not configured - pages remain open");
     }
     
+#if defined(SOC_TEMP_SENSOR_SUPPORTED) && SOC_TEMP_SENSOR_SUPPORTED
     // Initialize temperature sensor once at startup
     temperature_sensor_config_t temp_sensor_config = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
     esp_err_t err = temperature_sensor_install(&temp_sensor_config, &temp_sensor_handle_);
@@ -377,6 +379,9 @@ void TigoWebServer::setup() {
       ESP_LOGW(TAG, "Failed to install temperature sensor: %s", esp_err_to_name(err));
       temp_sensor_handle_ = nullptr;
     }
+#else
+    ESP_LOGI(TAG, "Internal temperature sensor is not supported on this ESP32 chip, skipping");
+#endif
     
     ESP_LOGI(TAG, "All routes registered");
   } else {
