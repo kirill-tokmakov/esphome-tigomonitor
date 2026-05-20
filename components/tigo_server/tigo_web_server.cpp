@@ -1700,10 +1700,11 @@ void TigoWebServer::build_esp_status_json(PSRAMString& json) {
   uint32_t total_frames = parent_->get_total_frames_processed();
   uint32_t command_frames = parent_->get_command_frame_count();
   uint32_t frame_27_count = parent_->get_frame_27_count();
-  
+
+  float internal_temp = 0.0f;
+ 
   // Get ESP32 internal temperature (using persistent sensor handle)
   #if defined(SOC_TEMP_SENSOR_SUPPORTED) && SOC_TEMP_SENSOR_SUPPORTED
-    float internal_temp = 0.0f;
     if (temp_sensor_handle_ != nullptr) {
       temperature_sensor_get_celsius(temp_sensor_handle_, &internal_temp);
     }
