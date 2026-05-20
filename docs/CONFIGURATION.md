@@ -189,6 +189,12 @@ Sensor type is inferred from name keywords:
 - `psram` → Free PSRAM sensor
 - `stack` → Free stack sensor
 
+> **Keyword precedence:** matching is order-sensitive. `checksum`/`frame` are
+> matched **before** `count`, so a name like `"Invalid Checksum Count"` or
+> `"Missed Frame Count"` resolves to the checksum/frame counter rather than the
+> device-count sensor even though it contains the word "count". Likewise
+> `psram` is matched before the generic `ram` keyword.
+
 > **Important:** Each hub-level sensor must be its own `- platform: tigo_monitor` entry.
 > Do **not** nest them as sub-keys (e.g., `power_sum:`) under a single platform entry — that format is only for per-device sensors.
 
